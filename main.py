@@ -348,6 +348,11 @@ class MangaNotifierApp(tk.Tk):
                                 width=120, height=32)
         add_btn.pack(side="left")
 
+        info_btn = RoundedButton(ctrl, "i", command=self._show_about,
+                                 bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
+                                 width=32, height=32)
+        info_btn.pack(side="left", padx=(8, 0))
+
     def _build_manga_list(self, parent):
         left_pane = tk.Frame(parent, bg=DARK_BG)
         left_pane.pack(fill="both", expand=True, pady=(12, 0))
@@ -448,6 +453,9 @@ class MangaNotifierApp(tk.Tk):
 
     def _open_url(self, url: str):
         webbrowser.open(url)
+        
+    def _show_about(self):
+        AboutDialog(self)
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
@@ -691,6 +699,43 @@ class EditTitleDialog(tk.Toplevel):
     def _submit(self):
         self.result_name = self._name_var.get()
         self.destroy()
+
+class AboutDialog(tk.Toplevel):
+    """Modal dialog displaying developer credits."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("About Manga Notifier")
+        self.geometry("360x220")
+        self.configure(bg=DARK_CARD)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        self._build()
+        self._center(parent)
+
+    def _center(self, parent):
+        self.update_idletasks()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        w, h = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{px + (pw - w)//2}+{py + (ph - h)//2}")
+
+    def _build(self):
+        tk.Label(self, text="Manga Notifier", fg=TEXT_PRIMARY, bg=DARK_CARD, font=("Segoe UI", 16, "bold")).pack(pady=(20, 5))
+        tk.Label(self, text="Your premium manga tracking companion.", fg=TEXT_MUTED, bg=DARK_CARD, font=FONT_BODY).pack()
+
+        frame = tk.Frame(self, bg=DARK_CARD2, padx=16, pady=12)
+        frame.pack(fill="x", padx=24, pady=16)
+
+        tk.Label(frame, text="DEVELOPER", fg=TEXT_MUTED, bg=DARK_CARD2, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        tk.Label(frame, text="Ayaan4uThere", fg=TEXT_PRIMARY, bg=DARK_CARD2, font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 10))
+
+        tk.Label(frame, text="FEEDBACK & SUPPORT", fg=TEXT_MUTED, bg=DARK_CARD2, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        tk.Label(frame, text="schoolboy3216@gmail.com", fg=ACCENT, bg=DARK_CARD2, font=("Segoe UI", 10)).pack(anchor="w")
+
+        self.bind("<Escape>", lambda e: self.destroy())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
