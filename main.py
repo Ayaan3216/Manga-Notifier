@@ -34,26 +34,57 @@ logging.basicConfig(
 
 from poller import PollingEngine
 from tracker import MangaTracker
+from themes import THEMES, THEME_NAMES, DEFAULT_THEME
 
 logger = logging.getLogger("manga_notifier.gui")
 
+# ── Live theme dict (acts like CSS variables) ─────────────────────────────────
+T: dict = dict(THEMES[DEFAULT_THEME])  # mutable; reassigned on theme switch
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Colour palette & style constants
-# ─────────────────────────────────────────────────────────────────────────────
+PREFS_FILE = BASE_DIR / "data" / "prefs.json"
 
-DARK_BG      = "#0f1117"
-DARK_CARD    = "#1a1d27"
-DARK_CARD2   = "#22263a"
-ACCENT       = "#7c6af7"
-ACCENT_HOVER = "#9b8fff"
-TEXT_PRIMARY = "#e8eaf6"
-TEXT_MUTED   = "#8a8da8"
-TEXT_LINK    = "#7eb8ff"
-SUCCESS      = "#4caf84"
-WARNING      = "#f5a623"
-ERROR_COL    = "#e05c5c"
-BORDER       = "#2c3050"
+def _load_prefs() -> dict:
+    try:
+        import json
+        return json.loads(PREFS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _save_prefs(d: dict):
+    import json
+    PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PREFS_FILE.write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+
+# Load saved theme
+_prefs = _load_prefs()
+_saved = _prefs.get("theme", DEFAULT_THEME)
+if _saved in THEMES:
+    T.update(THEMES[_saved])
+
+# ─ Global color strings (updated by set_theme()) ──────────────────────────────
+DARK_BG      = T["bg"]
+DARK_CARD    = T["card"]
+DARK_CARD2   = T["card2"]
+ACCENT       = T["accent"]
+ACCENT_HOVER = T["accent_hover"]
+TEXT_PRIMARY = T["text"]
+TEXT_MUTED   = T["muted"]
+TEXT_LINK    = T["link"]
+SUCCESS      = T["success"]
+WARNING      = T["warning"]
+ERROR_COL    = T["error"]
+BORDER       = T["border"]
+
+def _sync_globals():
+    """Copy T into the module-level color globals so widget constructors pick them up."""
+    import main as _m
+    for attr, key in [("DARK_BG","bg"),("DARK_CARD","card"),("DARK_CARD2","card2"),
+                      ("ACCENT","accent"),("ACCENT_HOVER","accent_hover"),
+                      ("TEXT_PRIMARY","text"),("TEXT_MUTED","muted"),("TEXT_LINK","link"),
+                      ("SUCCESS","success"),("WARNING","warning"),
+                      ("ERROR_COL","error"),("BORDER","border")]:
+        setattr(_m, attr, T[key])
 
 FONT_TITLE   = ("Segoe UI", 18, "bold")
 FONT_HEADING = ("Segoe UI", 11, "bold")
@@ -126,18 +157,29 @@ class MangaCard(tk.Frame):
 
     def _build(self, on_remove, on_open_url, on_edit_title):
         self.configure(padx=12, pady=10, relief="flat", bd=0)
+        self._thread_expanded = False
+        history = getattr(self.entry, "history", [])
 
         # ── main row ──
         main_row = tk.Frame(self, bg=DARK_CARD2)
         main_row.pack(fill="x", expand=True)
 
-        # ── left: status dot + title ──
+        # ── left: expand arrow + status dot + site icon + title ──
         left = tk.Frame(main_row, bg=DARK_CARD2)
         left.pack(side="left", fill="x", expand=True)
 
+        # Expand/collapse arrow (Reddit-style thread toggle)
+        if history:
+            self._arrow_lbl = tk.Label(left, text="▶", fg=TEXT_MUTED, bg=DARK_CARD2,
+                                       font=("Segoe UI", 8), cursor="hand2")
+            self._arrow_lbl.pack(side="left", padx=(0, 6))
+            self._arrow_lbl.bind("<Button-1>", self._toggle_thread)
+        else:
+            tk.Label(left, text=" ", bg=DARK_CARD2, width=2).pack(side="left")
+
         dot_color = SUCCESS if self.entry.last_chapter_num > 0 else TEXT_MUTED
         dot = tk.Label(left, text="●", fg=dot_color, bg=DARK_CARD2, font=("Segoe UI", 8))
-        dot.pack(side="left", padx=(0, 8))
+        dot.pack(side="left", padx=(0, 6))
 
         domain = ""
         if "kuaikanmanhua.com" in self.entry.url: domain = "kuaikan"
@@ -170,62 +212,91 @@ class MangaCard(tk.Frame):
         else:
             ch_text = "Not checked yet"
 
-        ch_lbl = tk.Label(right, text=ch_text, fg=TEXT_MUTED,
-                          bg=DARK_CARD2, font=FONT_SMALL)
+        ch_lbl = tk.Label(right, text=ch_text, fg=TEXT_MUTED, bg=DARK_CARD2, font=FONT_SMALL)
         ch_lbl.pack(side="left", padx=(0, 12))
 
-        # NEW badge and age
         if getattr(self.entry, "is_new", False):
             self.new_badge = tk.Label(right, text="NEW", fg="#ffffff", bg=SUCCESS,
                                  font=("Segoe UI", 8, "bold"), padx=4, pady=1)
             self.new_badge.pack(side="left", padx=(0, 8))
-            
             age_lbl = tk.Label(right, text=self.entry.chapter_age_str, fg=SUCCESS,
                                bg=DARK_CARD2, font=FONT_SMALL)
             age_lbl.pack(side="left", padx=(0, 8))
-            
             self._glow_state = 0
             self._animate_glow()
 
-        # Error badge
         if self.entry.error_count > 0:
             err = tk.Label(right, text=f"⚠ {self.entry.error_count} err",
                            fg=WARNING, bg=DARK_CARD2, font=FONT_SMALL)
             err.pack(side="left", padx=(0, 8))
 
-        # Open URL button
         open_btn = tk.Label(right, text="↗", fg=TEXT_LINK, bg=DARK_CARD2,
                             font=("Segoe UI", 13, "bold"), cursor="hand2")
         open_btn.pack(side="left", padx=(0, 8))
         open_btn.bind("<Button-1>", lambda e: on_open_url(self.entry.url))
 
-        # Remove button
         rem_btn = tk.Label(right, text="✕", fg=ERROR_COL, bg=DARK_CARD2,
                            font=("Segoe UI", 11, "bold"), cursor="hand2")
         rem_btn.pack(side="left")
         rem_btn.bind("<Button-1>", lambda e: on_remove(self.entry.url))
 
-        # ── thread history ──
-        if getattr(self.entry, "history", []):
-            hist_frame = tk.Frame(self, bg=DARK_CARD2)
-            hist_frame.pack(fill="x", expand=True, pady=(10, 0), padx=(12, 0))
-            
-            for item in self.entry.history:
-                row = tk.Frame(hist_frame, bg=DARK_CARD2)
-                row.pack(fill="x", pady=1)
-                
-                # thread branch icon
-                branch = tk.Label(row, text=" └─ ", fg=BORDER, bg=DARK_CARD2, font=FONT_MONO)
-                branch.pack(side="left")
-                
-                # time
-                t_str = time.strftime("%b %d, %H:%M", time.localtime(item.get("time", time.time())))
-                t_lbl = tk.Label(row, text=t_str, fg=TEXT_MUTED, bg=DARK_CARD2, font=FONT_SMALL)
-                t_lbl.pack(side="left", padx=(0, 10))
-                
-                # title
-                ch_hist_lbl = tk.Label(row, text=f"Ch. {item.get('num', 0):.0f} — {item.get('title', '')}", fg=TEXT_MUTED, bg=DARK_CARD2, font=FONT_SMALL)
-                ch_hist_lbl.pack(side="left")
+        # ── thread history (collapsible) ──
+        self._thread_frame = tk.Frame(self, bg=DARK_CARD2)
+        # not packed yet — only shown on expand
+        if history:
+            self._build_thread(history, on_open_url)
+
+    def _build_thread(self, history, on_open_url):
+        """Populate the thread frame with Reddit-style chapter history rows."""
+        # Header label for the thread
+        hdr = tk.Frame(self._thread_frame, bg=DARK_CARD2)
+        hdr.pack(fill="x", pady=(6, 2), padx=(16, 0))
+        tk.Label(hdr, text="CHAPTER HISTORY", fg=TEXT_MUTED, bg=DARK_CARD2,
+                 font=("Segoe UI", 7, "bold")).pack(side="left")
+
+        indent_colors = [ACCENT, "#4caf84", "#f5a623", "#7eb8ff", "#e05c5c"]
+        for idx, item in enumerate(history):
+            bar_color = indent_colors[idx % len(indent_colors)]
+            row = tk.Frame(self._thread_frame, bg=DARK_CARD2)
+            row.pack(fill="x", pady=2, padx=(16, 8))
+
+            # colored vertical bar (Reddit thread style)
+            bar = tk.Frame(row, bg=bar_color, width=3)
+            bar.pack(side="left", fill="y", padx=(0, 10))
+            bar.pack_propagate(False)
+
+            # content block
+            content = tk.Frame(row, bg=DARK_CARD2)
+            content.pack(side="left", fill="x", expand=True)
+
+            t_str = time.strftime("%b %d, %H:%M", time.localtime(item.get("time", time.time())))
+            top_row = tk.Frame(content, bg=DARK_CARD2)
+            top_row.pack(fill="x")
+            tk.Label(top_row, text=f"Ch. {item.get('num', 0):.0f}",
+                     fg=TEXT_PRIMARY, bg=DARK_CARD2, font=("Segoe UI", 9, "bold")).pack(side="left")
+            tk.Label(top_row, text=f"  ·  {t_str}",
+                     fg=TEXT_MUTED, bg=DARK_CARD2, font=FONT_SMALL).pack(side="left")
+
+            ch_title = item.get("title", "")
+            if ch_title:
+                tk.Label(content, text=ch_title, fg=TEXT_MUTED, bg=DARK_CARD2,
+                         font=FONT_SMALL, anchor="w").pack(fill="x")
+
+            ch_url = item.get("url", "")
+            if ch_url:
+                link = tk.Label(content, text="Open chapter ↗", fg=TEXT_LINK,
+                                bg=DARK_CARD2, font=FONT_SMALL, cursor="hand2")
+                link.pack(anchor="w")
+                link.bind("<Button-1>", lambda e, u=ch_url: on_open_url(u))
+
+    def _toggle_thread(self, _e=None):
+        self._thread_expanded = not self._thread_expanded
+        if self._thread_expanded:
+            self._thread_frame.pack(fill="x", expand=True, pady=(4, 4))
+            self._arrow_lbl.configure(text="▼", fg=ACCENT)
+        else:
+            self._thread_frame.pack_forget()
+            self._arrow_lbl.configure(text="▶", fg=TEXT_MUTED)
 
     def _animate_glow(self):
         # Cycle colors to simulate a pulse/glow
@@ -311,7 +382,19 @@ class MangaNotifierApp(tk.Tk):
         logo_frame = tk.Frame(hdr, bg=DARK_CARD)
         logo_frame.pack(side="left")
 
-        tk.Label(logo_frame, text="📖", bg=DARK_CARD, font=("Segoe UI", 22)).pack(side="left", padx=(0, 10))
+        # Try to load app_icon.png as the logo
+        self._header_logo = None
+        try:
+            from PIL import Image, ImageTk
+            _icon_path = ASSETS_DIR / "app_icon.png"
+            if _icon_path.exists():
+                _img = Image.open(_icon_path).resize((48, 48), Image.LANCZOS)
+                self._header_logo = ImageTk.PhotoImage(_img)
+                tk.Label(logo_frame, image=self._header_logo, bg=DARK_CARD).pack(side="left", padx=(0, 10))
+            else:
+                tk.Label(logo_frame, text="📖", bg=DARK_CARD, font=("Segoe UI", 22)).pack(side="left", padx=(0, 10))
+        except Exception:
+            tk.Label(logo_frame, text="📖", bg=DARK_CARD, font=("Segoe UI", 22)).pack(side="left", padx=(0, 10))
 
         title_frame = tk.Frame(logo_frame, bg=DARK_CARD)
         title_frame.pack(side="left")
@@ -357,6 +440,24 @@ class MangaNotifierApp(tk.Tk):
                                  bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
                                  width=32, height=32)
         info_btn.pack(side="left", padx=(8, 0))
+
+        # Theme picker
+        prefs = _load_prefs()
+        self._theme_var = tk.StringVar(value=prefs.get("theme", DEFAULT_THEME))
+        theme_menu = tk.OptionMenu(ctrl, self._theme_var, *THEME_NAMES,
+                                   command=self._on_theme_change)
+        theme_menu.configure(
+            bg=DARK_CARD2, fg=TEXT_MUTED, activebackground=BORDER,
+            activeforeground=TEXT_PRIMARY, highlightthickness=0,
+            relief="flat", font=FONT_SMALL, borderwidth=0,
+            indicatoron=False,
+        )
+        theme_menu["menu"].configure(
+            bg=DARK_CARD, fg=TEXT_PRIMARY,
+            activebackground=ACCENT, activeforeground=TEXT_PRIMARY,
+            font=FONT_SMALL, borderwidth=0,
+        )
+        theme_menu.pack(side="left", padx=(6, 0))
 
     def _build_manga_list(self, parent):
         left_pane = tk.Frame(parent, bg=DARK_BG)
@@ -461,6 +562,74 @@ class MangaNotifierApp(tk.Tk):
         
     def _show_about(self):
         AboutDialog(self)
+
+    # ── Theme system ──────────────────────────────────────────────────────────
+
+    def _on_theme_change(self, name: str):
+        """Called when user picks a theme from the OptionMenu."""
+        global T, DARK_BG, DARK_CARD, DARK_CARD2, ACCENT, ACCENT_HOVER
+        global TEXT_PRIMARY, TEXT_MUTED, TEXT_LINK, SUCCESS, WARNING, ERROR_COL, BORDER
+        T.update(THEMES[name])
+        _sync_globals()
+        # Update globals in this module's namespace too
+        DARK_BG      = T["bg"]
+        DARK_CARD    = T["card"]
+        DARK_CARD2   = T["card2"]
+        ACCENT       = T["accent"]
+        ACCENT_HOVER = T["accent_hover"]
+        TEXT_PRIMARY = T["text"]
+        TEXT_MUTED   = T["muted"]
+        TEXT_LINK    = T["link"]
+        SUCCESS      = T["success"]
+        WARNING      = T["warning"]
+        ERROR_COL    = T["error"]
+        BORDER       = T["border"]
+        # Persist
+        p = _load_prefs()
+        p["theme"] = name
+        _save_prefs(p)
+        # Recolor root and rebuild
+        self.configure(bg=DARK_BG)
+        self._recolor_widget(self)
+        self._refresh_list()
+
+    def _recolor_widget(self, widget):
+        """Recursively recolor all bg/fg-able widgets to current theme."""
+        _bg_map = {
+            DARK_BG: T["bg"], DARK_CARD: T["card"], DARK_CARD2: T["card2"],
+            BORDER: T["border"],
+        }
+        try:
+            cur_bg = widget.cget("bg")
+            # Map old bg to new bg
+            new_bg = None
+            for old, new in _bg_map.items():
+                if cur_bg == old or cur_bg in (old, T["bg"], T["card"], T["card2"]):
+                    new_bg = new
+                    break
+            if new_bg is None:
+                new_bg = T["bg"]
+            widget.configure(bg=new_bg)
+        except Exception:
+            pass
+        try:
+            cur_fg = widget.cget("fg")
+            if cur_fg in (TEXT_MUTED, T["muted"]):
+                widget.configure(fg=T["muted"])
+            elif cur_fg in (TEXT_PRIMARY, T["text"]):
+                widget.configure(fg=T["text"])
+            elif cur_fg in (TEXT_LINK, T["link"]):
+                widget.configure(fg=T["link"])
+            elif cur_fg in (ACCENT, T["accent"]):
+                widget.configure(fg=T["accent"])
+            elif cur_fg in (SUCCESS, T["success"]):
+                widget.configure(fg=T["success"])
+            elif cur_fg in (ERROR_COL, T["error"]):
+                widget.configure(fg=T["error"])
+        except Exception:
+            pass
+        for child in widget.winfo_children():
+            self._recolor_widget(child)
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
@@ -728,34 +897,61 @@ class AboutDialog(tk.Toplevel):
         self.geometry(f"+{px + (pw - w)//2}+{py + (ph - h)//2}")
 
     def _build(self):
+        # ── icon ──
         try:
             from PIL import Image, ImageTk
-            import sys
-            
-            if getattr(sys, 'frozen', False):
-                assets_dir = Path(sys._MEIPASS) / "data" / "assets"
-            else:
-                assets_dir = Path(__file__).parent / "data" / "assets"
-                
-            app_icon_path = assets_dir / "app_icon.png"
-            img = Image.open(app_icon_path)
-            img = img.resize((72, 72), Image.LANCZOS)
-            self._photo = ImageTk.PhotoImage(img)
-            tk.Label(self, image=self._photo, bg=DARK_CARD).pack(pady=(20, 0))
+            _p = ASSETS_DIR / "app_icon.png"
+            if _p.exists():
+                _img = Image.open(_p).resize((80, 80), Image.LANCZOS)
+                self._photo = ImageTk.PhotoImage(_img)
+                tk.Label(self, image=self._photo, bg=DARK_CARD).pack(pady=(20, 0))
         except Exception:
-            pass
+            tk.Label(self, text="📖", bg=DARK_CARD, font=("Segoe UI", 36)).pack(pady=(20, 0))
 
-        tk.Label(self, text="Manga Notifier", fg=TEXT_PRIMARY, bg=DARK_CARD, font=("Segoe UI", 16, "bold")).pack(pady=(10, 5))
-        tk.Label(self, text="Your premium manga tracking companion.", fg=TEXT_MUTED, bg=DARK_CARD, font=FONT_BODY).pack()
+        tk.Label(self, text="Manga Notifier", fg=TEXT_PRIMARY, bg=DARK_CARD,
+                 font=("Segoe UI", 16, "bold")).pack(pady=(8, 2))
+        tk.Label(self, text="Your premium manga tracking companion.",
+                 fg=TEXT_MUTED, bg=DARK_CARD, font=FONT_SMALL).pack()
 
-        frame = tk.Frame(self, bg=DARK_CARD2, padx=16, pady=12)
-        frame.pack(fill="x", padx=24, pady=16)
+        # ── version pill ──
+        ver = tk.Label(self, text="v1.0.0", fg=ACCENT, bg=DARK_CARD2,
+                       font=("Segoe UI", 8, "bold"), padx=8, pady=2)
+        ver.pack(pady=(6, 0))
 
-        tk.Label(frame, text="DEVELOPER", fg=TEXT_MUTED, bg=DARK_CARD2, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        tk.Label(frame, text="Ayaan4uThere", fg=TEXT_PRIMARY, bg=DARK_CARD2, font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 10))
+        # ── info card ──
+        card = tk.Frame(self, bg=DARK_CARD2, padx=16, pady=14)
+        card.pack(fill="x", padx=24, pady=14)
 
-        tk.Label(frame, text="FEEDBACK & SUPPORT", fg=TEXT_MUTED, bg=DARK_CARD2, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        tk.Label(frame, text="schoolboy3216@gmail.com", fg=ACCENT, bg=DARK_CARD2, font=("Segoe UI", 10)).pack(anchor="w")
+        tk.Label(card, text="DEVELOPER", fg=TEXT_MUTED, bg=DARK_CARD2,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        tk.Label(card, text="Ayaan4uThere", fg=TEXT_PRIMARY, bg=DARK_CARD2,
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(2, 10))
+
+        sep = tk.Frame(card, bg=BORDER, height=1)
+        sep.pack(fill="x", pady=(0, 10))
+
+        tk.Label(card, text="FEEDBACK & SUPPORT", fg=TEXT_MUTED, bg=DARK_CARD2,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        email_lbl = tk.Label(card, text="✉  schoolboy3216@gmail.com", fg=ACCENT,
+                             bg=DARK_CARD2, font=("Segoe UI", 10), cursor="hand2")
+        email_lbl.pack(anchor="w", pady=(2, 0))
+        email_lbl.bind("<Button-1>", lambda e: webbrowser.open("mailto:schoolboy3216@gmail.com"))
+
+        sep2 = tk.Frame(card, bg=BORDER, height=1)
+        sep2.pack(fill="x", pady=10)
+
+        tk.Label(card, text="SOURCE & ISSUES", fg=TEXT_MUTED, bg=DARK_CARD2,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        gh_lbl = tk.Label(card, text="⎋  Report a bug / Request a feature", fg=TEXT_LINK,
+                          bg=DARK_CARD2, font=("Segoe UI", 10), cursor="hand2")
+        gh_lbl.pack(anchor="w", pady=(2, 0))
+        gh_lbl.bind("<Button-1>", lambda e: webbrowser.open("mailto:schoolboy3216@gmail.com?subject=MangaNotifier%20Feedback"))
+
+        # ── close button ──
+        close_btn = RoundedButton(self, "Close", command=self.destroy,
+                                  bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
+                                  width=100, height=30)
+        close_btn.pack(pady=(0, 16))
 
         self.bind("<Escape>", lambda e: self.destroy())
 
