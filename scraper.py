@@ -694,75 +694,88 @@ def _scrape_naver_series(url: str, session: requests.Session) -> MangaInfo:
 
 def _scrape_kakao_page(url: str, session: requests.Session) -> MangaInfo:
     """
-    Parse page.kakao.com/content.
-    Strategy:
-      1. Try api-page.kakao.com REST episode list (works without auth for some series)
-      2. Parse __NEXT_DATA__ JSON embedded in the SSR page (singleCount / episodeList)
-      3. Fallback: regex max 화 number from HTML
+    Parse page.kakao.com/content using the embedded __NEXT_DATA__ JSON.
+
+    The SSR page includes a React Query dehydrated state with:
+      - content.title
+      - content.freeSlideCount  (total free episodes = episode number)
+      - content.lastSlideAddedDate (when last episode was uploaded)
     URL format: https://page.kakao.com/content/61856924
     """
-    m_id = re.search(r'/content/(\d+)', url)
-    if not m_id:
-        raise ValueError(f"Cannot extract content ID from Kakao URL: {url}")
-    content_id = m_id.group(1)
-
-    h = {**KR_HEADERS, "Referer": "https://page.kakao.com/", "Accept": "application/json"}
-
-    # 1 ── Try REST API (may work without auth for free series)
-    for api_url in [
-        f"https://api-page.kakao.com/api/v5/store/content/singles?contentId={content_id}&sortType=NEWEST&page=1&size=1",
-        f"https://api-page.kakao.com/api/v6/store/singles?seriesId={content_id}&sort=NEWEST&limit=1",
-    ]:
-        try:
-            r = session.get(api_url, headers=h, timeout=8)
-            if r.status_code == 200:
-                d = r.json()
-                singles = d.get("singles") or d.get("data", {}).get("singles") or []
-                if singles:
-                    ep = singles[0]
-                    ch_num = float(ep.get("seq") or ep.get("no") or 0)
-                    ch_title = ep.get("title") or f"{int(ch_num)}화"
-                    if ch_num > 0:
-                        logger.info(f"Kakao API: content {content_id} Ch.{ch_num}")
-                        return MangaInfo(
-                            title=ep.get("singleTitle") or "Unknown",
-                            cover_url=ep.get("thumbnail") or "",
-                            latest_chapter=ChapterInfo(ch_num, ch_title, url),
-                        )
-        except Exception:
-            pass
-
-    # 2 ── Parse the SSR page
-    resp = session.get(url, headers={**KR_HEADERS, "Referer": "https://page.kakao.com/"}, timeout=TIMEOUT)
+    resp = session.get(
+        url,
+        headers={**KR_HEADERS, "Referer": "https://page.kakao.com/"},
+        timeout=TIMEOUT,
+    )
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
 
-    # Title from og:title
+    # Title fallback from og:title
     og_title = soup.find("meta", property="og:title")
     manga_title = og_title["content"].strip() if og_title and og_title.get("content") else "Unknown"
     manga_title = re.sub(r'\s*[-|]\s*(웹툰|카카오페이지).*$', '', manga_title).strip()
 
-    og_desc = soup.find("meta", property="og:description")
-    desc_text = og_desc["content"] if og_desc and og_desc.get("content") else ""
+    # Parse __NEXT_DATA__ embedded JSON for episode data
+    nd_tag = soup.find("script", id="__NEXT_DATA__")
+    if nd_tag:
+        try:
+            import json as _json
+            nd = _json.loads(nd_tag.get_text())
+            # Traverse dehydrated React Query state
+            queries = (
+                nd.get("props", {})
+                  .get("pageProps", {})
+                  .get("initialProps", {})
+                  .get("dehydratedState", {})
+                  .get("queries", [])
+            )
+            content = None
+            for q in queries:
+                data = q.get("state", {}).get("data", {})
+                overview = data.get("contentHomeOverview", {})
+                if overview:
+                    content = overview.get("content", {})
+                    if not content:
+                        content = data
+                    break
 
-    # Collect all 화 numbers from the HTML
-    all_nums = [int(n) for n in re.findall(r'(\d+)화', resp.text + " " + desc_text)]
-    # Also look for numbers in JSON-like structures (e.g. "seq":123)
-    seq_nums = [int(n) for n in re.findall(r'"seq"\s*:\s*(\d+)', resp.text)]
-    all_nums += seq_nums
+            if content:
+                # freeSlideCount = number of free episodes (reliable episode count)
+                free_count = content.get("freeSlideCount", 0)
+                # Also try totalSlideCount if available
+                total_count = content.get("totalSlideCount") or content.get("slideCount") or free_count
+                ch_num = float(total_count or free_count)
 
+                # Use manga title from the JSON (cleaner than og:title)
+                manga_title = content.get("title") or manga_title
+
+                if ch_num > 0:
+                    m_id = re.search(r'/content/(\d+)', url)
+                    content_id = m_id.group(1) if m_id else ""
+                    ch_title = f"{int(ch_num)}화"
+                    ch_url = f"https://page.kakao.com/content/{content_id}"
+                    logger.info(f"Kakao Page (__NEXT_DATA__): {manga_title} — Ch.{ch_num}")
+                    return MangaInfo(
+                        title=manga_title,
+                        cover_url="",
+                        latest_chapter=ChapterInfo(ch_num, ch_title, ch_url),
+                    )
+        except Exception as e:
+            logger.warning(f"Kakao __NEXT_DATA__ parse failed: {e}")
+
+    # Final fallback: regex max 화 number from HTML
+    all_nums = [int(n) for n in re.findall(r'(\d+)화', resp.text)]
     if all_nums:
-        ch_num   = float(max(all_nums))
+        ch_num = float(max(all_nums))
         ch_title = f"{int(ch_num)}화"
-    else:
-        return MangaInfo(title=manga_title, cover_url="", latest_chapter=None)
+        m_id = re.search(r'/content/(\d+)', url)
+        content_id = m_id.group(1) if m_id else ""
+        ch_url = f"https://page.kakao.com/content/{content_id}"
+        logger.info(f"Kakao Page (fallback): {manga_title} — Ch.{ch_num}")
+        return MangaInfo(title=manga_title, cover_url="", latest_chapter=ChapterInfo(ch_num, ch_title, ch_url))
 
-    m = re.search(r'/content/(\d+)', url)
-    content_id = m.group(1) if m else ""
-    ch_url = f"https://page.kakao.com/content/{content_id}"
+    return MangaInfo(title=manga_title, cover_url="", latest_chapter=None)
 
-    logger.info(f"Kakao Page: {manga_title} — Ch.{ch_num}")
-    return MangaInfo(title=manga_title, cover_url="", latest_chapter=ChapterInfo(ch_num, ch_title, ch_url))
 
 
 
