@@ -161,14 +161,14 @@ class PollingEngine:
                     f"Ch.{info.latest_chapter.number} — {info.latest_chapter.title}"
                 )
                 notify_new_chapter(
-                    info.title,
-                    f"Chapter {info.latest_chapter.number:.0f}: {info.latest_chapter.title}",
+                    display,                                      # user's own name
+                    f"Chapter {info.latest_chapter.number:.0f}",  # simple, no Chinese text
                     info.latest_chapter.url,
                 )
                 if self.on_new_chapter:
                     self.on_new_chapter(
                         url,
-                        info.title,
+                        display,
                         info.latest_chapter.number,
                         info.latest_chapter.title,
                         info.latest_chapter.url,
