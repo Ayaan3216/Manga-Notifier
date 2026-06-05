@@ -740,11 +740,18 @@ def _scrape_kakao_page(url: str, session: requests.Session) -> MangaInfo:
                     break
 
             if content:
-                # freeSlideCount = number of free episodes (reliable episode count)
-                free_count = content.get("freeSlideCount", 0)
-                # Also try totalSlideCount if available
-                total_count = content.get("totalSlideCount") or content.get("slideCount") or free_count
-                ch_num = float(total_count or free_count)
+                # Kakao Page has two types of accessible episodes:
+                #   freeSlideCount      = permanently free episodes
+                #   waitfreeBlockCount  = episodes accessible by waiting 24h (PayWaitfree model)
+                # Total accessible = free + waitfree. When a new ep is released, one counter
+                # increases by 1 — so new-chapter detection still works correctly.
+                free_count     = content.get("freeSlideCount", 0) or 0
+                waitfree_count = content.get("waitfreeBlockCount", 0) or 0
+                # If the API ever exposes a proper total, prefer it
+                total_count = (content.get("totalSlideCount")
+                               or content.get("slideCount")
+                               or (free_count + waitfree_count))
+                ch_num = float(total_count)
 
                 # Use manga title from the JSON (cleaner than og:title)
                 manga_title = content.get("title") or manga_title
@@ -754,12 +761,16 @@ def _scrape_kakao_page(url: str, session: requests.Session) -> MangaInfo:
                     content_id = m_id.group(1) if m_id else ""
                     ch_title = f"{int(ch_num)}화"
                     ch_url = f"https://page.kakao.com/content/{content_id}"
-                    logger.info(f"Kakao Page (__NEXT_DATA__): {manga_title} — Ch.{ch_num}")
+                    logger.info(
+                        f"Kakao Page (__NEXT_DATA__): {manga_title} — Ch.{ch_num} "
+                        f"(free={free_count}, waitfree={waitfree_count})"
+                    )
                     return MangaInfo(
                         title=manga_title,
                         cover_url="",
                         latest_chapter=ChapterInfo(ch_num, ch_title, ch_url),
                     )
+
         except Exception as e:
             logger.warning(f"Kakao __NEXT_DATA__ parse failed: {e}")
 
