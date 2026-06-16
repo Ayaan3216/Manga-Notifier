@@ -12,6 +12,7 @@ import webbrowser
 from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Optional
+from PIL import Image, ImageTk, ImageDraw
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -122,8 +123,12 @@ class RoundedButton(tk.Canvas):
         self._width = width
         self._height = height
 
-        # Draw pill background
-        self._draw_pill(self._bg)
+        # Create smooth anti-aliased images using PIL
+        self._img_normal = self._create_smooth_pill(bg, outer_bg)
+        self._img_hover = self._create_smooth_pill(hover_bg, outer_bg)
+
+        # Draw pill background image
+        self._pill_id = self.create_image(0, 0, image=self._img_normal, anchor="nw", tags="pill")
 
         # Draw text
         self._text_id = self.create_text(width/2, height/2, text=text, fill=fg, font=font, justify="center")
@@ -140,39 +145,26 @@ class RoundedButton(tk.Canvas):
         self.tag_bind(self._text_id, "<Leave>", self._on_leave)
         self.tag_bind(self._text_id, "<Button-1>", self._click)
 
-    def _draw_pill(self, color):
-        self.delete("pill")
-        r = self._radius
-        w = self._width
-        h = self._height
-        
-        # If radius is too big for height, clamp it
-        if 2*r > h: r = h/2
+    def _create_smooth_pill(self, color, outer_bg):
+        # 4x supersampling for smooth anti-aliasing
+        scale = 4
+        w, h = self._width * scale, self._height * scale
+        r = self._radius * scale
+        if 2*r > h: r = h//2
 
-        # Draw left semicircle
-        self.create_oval(0, 0, 2*r, h, fill=color, outline=color, tags="pill")
-        # Draw right semicircle
-        self.create_oval(w-2*r, 0, w, h, fill=color, outline=color, tags="pill")
-        # Draw connecting rectangle
-        self.create_rectangle(r, 0, w-r, h, fill=color, outline=color, tags="pill")
+        img = Image.new("RGBA", (w, h), outer_bg)
+        draw = ImageDraw.Draw(img)
+        draw.rounded_rectangle((0, 0, w, h), radius=r, fill=color)
+        
+        # Downscale to actual size
+        resized = img.resize((self._width, self._height), Image.LANCZOS)
+        return ImageTk.PhotoImage(resized)
 
     def _on_enter(self, _e=None):
-        self.delete("pill")
-        self._draw_pill(self._hover_bg)
-        self.tag_raise(self._text_id)
-        # re-bind
-        self.tag_bind("pill", "<Enter>", self._on_enter)
-        self.tag_bind("pill", "<Leave>", self._on_leave)
-        self.tag_bind("pill", "<Button-1>", self._click)
+        self.itemconfig(self._pill_id, image=self._img_hover)
 
     def _on_leave(self, _e=None):
-        self.delete("pill")
-        self._draw_pill(self._bg)
-        self.tag_raise(self._text_id)
-        # re-bind
-        self.tag_bind("pill", "<Enter>", self._on_enter)
-        self.tag_bind("pill", "<Leave>", self._on_leave)
-        self.tag_bind("pill", "<Button-1>", self._click)
+        self.itemconfig(self._pill_id, image=self._img_normal)
 
     def _click(self, _e=None):
         if self._command:
@@ -468,7 +460,6 @@ class MangaNotifierApp(tk.Tk):
         # Try to load app_icon.png as the logo
         self._header_logo = None
         try:
-            from PIL import Image, ImageTk
             _icon_path = ASSETS_DIR / "app_icon.png"
             if _icon_path.exists():
                 _img = Image.open(_icon_path).resize((48, 48), Image.LANCZOS)
@@ -625,6 +616,17 @@ class MangaNotifierApp(tk.Tk):
 
     # ── Refresh UI ────────────────────────────────────────────────────────────
 
+    def _schedule_refresh(self):
+        """Debounce the UI refresh to prevent locking the main thread when many chapters update."""
+        if getattr(self, "_refresh_pending", False):
+            return
+        self._refresh_pending = True
+        self.after(500, self._do_refresh)
+
+    def _do_refresh(self):
+        self._refresh_pending = False
+        self._refresh_list()
+
     def _refresh_list(self):
         """Rebuild the manga card list from current tracker data."""
         for widget in self._list_frame.winfo_children():
@@ -751,14 +753,14 @@ class MangaNotifierApp(tk.Tk):
 
     def _check_one_deferred(self, url: str):
         self.engine._check_one(url)
-        self.after(0, self._refresh_list)
+        self._schedule_refresh()
 
     def _remove_manga(self, url: str):
         entry = self.tracker.get(url)
         name = entry.display_name if entry else url
         if messagebox.askyesno("Remove", f"Stop tracking\n«{name}»?", parent=self):
             self.tracker.remove(url)
-            self._refresh_list()
+            self._schedule_refresh()
             logger.info(f"Removed: {name}")
 
     def _edit_manga_title(self, url: str, current_name: str):
@@ -772,15 +774,13 @@ class MangaNotifierApp(tk.Tk):
                 entry.has_custom_title = bool(new_name)
                 entry.title_resolved = True
                 self.tracker.save()
-                self._refresh_list()
+                self._schedule_refresh()
                 logger.info(f"Edited title: {new_name}")
 
     def _check_now(self):
         logger.info("Manual check triggered…")
         self.engine.force_check_now()
-        self.after(3000, self._refresh_list)
-        self.after(8000, self._refresh_list)
-        self.after(20000, self._refresh_list)
+        self._schedule_refresh()
 
     def _on_interval_change(self):
         val = self._interval_var.get()
@@ -793,11 +793,12 @@ class MangaNotifierApp(tk.Tk):
     def _on_new_chapter_callback(self, url, manga_title, ch_num, ch_title, ch_url):
         msg = f"🆕 {manga_title} — Ch.{ch_num:.0f}: {ch_title}"
         logger.info(msg)
-        self.after(0, self._refresh_list)
+        self._schedule_refresh()
 
     def _on_status_callback(self, message: str):
         self.after(0, lambda: self._status_var.set(message))
-        self.after(500, self._refresh_list)
+        if "All checked" in message:
+            self._schedule_refresh()
 
     # ── Animations ────────────────────────────────────────────────────────────
 
