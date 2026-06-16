@@ -10,9 +10,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $AppName    = "Manga Notifier"
-$Version    = "v1.5"
-$ExeName    = "MNv1.5.exe"
-$OldExes    = @("MNv1.4.exe", "MNv1.3.exe", "MangaNotifier.exe")
+$Version    = "v1.6"
+$ExeName    = "MNv1.6.exe"
+$OldExes    = @("MNv1.5.exe", "MNv1.4.exe", "MNv1.3.exe", "MangaNotifier.exe")
 $ShortcutPath = [System.IO.Path]::Combine($env:USERPROFILE, "Desktop", "$AppName.lnk")
 $SourceExe  = Join-Path $PSScriptRoot $ExeName
 

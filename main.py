@@ -100,50 +100,86 @@ DEFAULT_INTERVAL = 5  # minutes
 #  Custom Widgets
 # ─────────────────────────────────────────────────────────────────────────────
 
-class RoundedButton(tk.Frame):
-    """A styled button using a Frame + Label, with hover color animation."""
+class RoundedButton(tk.Canvas):
+    """A Material Design 3 pill-shaped button using Canvas to draw perfectly rounded ends."""
 
     def __init__(self, master, text, command=None,
                  bg=ACCENT, fg=TEXT_PRIMARY, hover_bg=ACCENT_HOVER,
-                 width=140, height=34, radius=17, font=FONT_BODY, **kwargs):
-        # Use the master's bg for the outer frame to blend in
+                 width=140, height=36, radius=18, font=FONT_BODY, **kwargs):
         try:
             outer_bg = master.cget("bg")
         except Exception:
             outer_bg = DARK_BG
 
-        super().__init__(master, bg=outer_bg, **kwargs)
+        super().__init__(master, bg=outer_bg, width=width, height=height, highlightthickness=0, **kwargs)
+        self.pack_propagate(False)
 
         self._bg = bg
         self._hover_bg = hover_bg
         self._fg = fg
         self._command = command
+        self._radius = radius
+        self._width = width
+        self._height = height
 
-        # Inner label acts as the button face
-        self._lbl = tk.Label(
-            self, text=text, bg=bg, fg=fg, font=font,
-            padx=14, pady=6, cursor="hand2",
-            relief="flat", bd=0,
-        )
-        self._lbl.pack(fill="both", expand=True)
+        # Draw pill background
+        self._draw_pill(self._bg)
 
-        self._lbl.bind("<Enter>", self._on_enter)
-        self._lbl.bind("<Leave>", self._on_leave)
-        self._lbl.bind("<Button-1>", self._click)
-        self._lbl.bind("<ButtonRelease-1>", self._on_leave)
+        # Draw text
+        self._text_id = self.create_text(width/2, height/2, text=text, fill=fg, font=font, justify="center")
+
+        # Bindings
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<Button-1>", self._click)
+        self.bind("<ButtonRelease-1>", self._on_leave)
+        self.tag_bind("pill", "<Enter>", self._on_enter)
+        self.tag_bind("pill", "<Leave>", self._on_leave)
+        self.tag_bind("pill", "<Button-1>", self._click)
+        self.tag_bind(self._text_id, "<Enter>", self._on_enter)
+        self.tag_bind(self._text_id, "<Leave>", self._on_leave)
+        self.tag_bind(self._text_id, "<Button-1>", self._click)
+
+    def _draw_pill(self, color):
+        self.delete("pill")
+        r = self._radius
+        w = self._width
+        h = self._height
+        
+        # If radius is too big for height, clamp it
+        if 2*r > h: r = h/2
+
+        # Draw left semicircle
+        self.create_oval(0, 0, 2*r, h, fill=color, outline=color, tags="pill")
+        # Draw right semicircle
+        self.create_oval(w-2*r, 0, w, h, fill=color, outline=color, tags="pill")
+        # Draw connecting rectangle
+        self.create_rectangle(r, 0, w-r, h, fill=color, outline=color, tags="pill")
 
     def _on_enter(self, _e=None):
-        self._lbl.configure(bg=self._hover_bg)
+        self.delete("pill")
+        self._draw_pill(self._hover_bg)
+        self.tag_raise(self._text_id)
+        # re-bind
+        self.tag_bind("pill", "<Enter>", self._on_enter)
+        self.tag_bind("pill", "<Leave>", self._on_leave)
+        self.tag_bind("pill", "<Button-1>", self._click)
 
     def _on_leave(self, _e=None):
-        self._lbl.configure(bg=self._bg)
+        self.delete("pill")
+        self._draw_pill(self._bg)
+        self.tag_raise(self._text_id)
+        # re-bind
+        self.tag_bind("pill", "<Enter>", self._on_enter)
+        self.tag_bind("pill", "<Leave>", self._on_leave)
+        self.tag_bind("pill", "<Button-1>", self._click)
 
     def _click(self, _e=None):
         if self._command:
             self._command()
 
     def config_text(self, text: str):
-        self._lbl.configure(text=text)
+        self.itemconfig(self._text_id, text=text)
 
 
 
@@ -158,7 +194,8 @@ class MangaCard(tk.Frame):
         self._build(on_remove, on_open_url, on_edit_title)
 
     def _build(self, on_remove, on_open_url, on_edit_title):
-        self.configure(padx=12, pady=10, relief="flat", bd=0)
+        # Increased padding to feel more airy like Material
+        self.configure(padx=16, pady=14, relief="flat", bd=0)
         self._thread_expanded = False
         history = getattr(self.entry, "history", [])
 
@@ -473,19 +510,20 @@ class MangaNotifierApp(tk.Tk):
         # Check now button
         self._check_btn = RoundedButton(ctrl, "Check Now", command=self._check_now,
                                         bg=DARK_CARD2, fg=TEXT_PRIMARY, hover_bg=BORDER,
-                                        width=110, height=32)
-        self._check_btn.pack(side="left", padx=(0, 8))
+                                        width=110, height=38)
+        self._check_btn.pack(side="left", padx=(0, 12))
 
         # Add manga button
+        # In Material 3, the primary button (FAB or primary action) often uses the accent background with contrasting dark text.
         add_btn = RoundedButton(ctrl, "+ Add Manga", command=self._add_manga,
-                                bg=ACCENT, fg=TEXT_PRIMARY, hover_bg=ACCENT_HOVER,
-                                width=120, height=32)
+                                bg=ACCENT, fg="#1C1C1E", hover_bg=ACCENT_HOVER,
+                                width=130, height=38)
         add_btn.pack(side="left")
 
-        info_btn = RoundedButton(ctrl, "i", command=self._show_about,
+        info_btn = RoundedButton(ctrl, "ℹ", command=self._show_about,
                                  bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
-                                 width=32, height=32)
-        info_btn.pack(side="left", padx=(8, 0))
+                                 width=38, height=38, radius=19)
+        info_btn.pack(side="left", padx=(12, 0))
 
         # Theme picker
         prefs = _load_prefs()
@@ -613,11 +651,7 @@ class MangaNotifierApp(tk.Tk):
                 on_edit_title=self._edit_manga_title,
                 on_status_change=self._set_manga_status,
             )
-            card.pack(fill="x", pady=(0, 4))
-
-            if i < len(entries) - 1:
-                sep = tk.Frame(self._list_frame, bg=BORDER, height=1)
-                sep.pack(fill="x", pady=(0, 4))
+            card.pack(fill="x", pady=(0, 10))
 
     def _open_url(self, url: str):
         webbrowser.open(url)
@@ -940,8 +974,7 @@ class EditTitleDialog(tk.Toplevel):
         self.result_name = self._name_var.get()
         self.destroy()
 
-APP_VERSION = "v1.5"
-
+APP_VERSION = "v1.6"
 
 class AboutDialog(tk.Toplevel):
     """Android-Material styled About sheet."""

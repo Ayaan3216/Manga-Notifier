@@ -1,13 +1,13 @@
 ; ─────────────────────────────────────────────────────────────────────────────
-;  Manga Notifier v1.5 – Inno Setup Installer Script
+;  Manga Notifier v1.6 – Inno Setup Installer Script
 ;  Replaces any previous MNv1.x installation while preserving user data.
 ; ─────────────────────────────────────────────────────────────────────────────
 
 #define AppName      "Manga Notifier"
-#define AppVersion   "1.5"
+#define AppVersion   "1.6"
 #define AppPublisher "Ayaan4uThere"
 #define AppURL       "https://github.com/Ayaan3216/Manga-Notifier"
-#define AppExeName   "MNv1.5.exe"
+#define AppExeName   "MNv1.6.exe"
 #define AppId        "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 
 [Setup]
@@ -23,7 +23,7 @@ DefaultGroupName={#AppName}
 AllowNoIcons=yes
 ; Single-file installer — no sub-directory install wizard
 OutputDir=dist
-OutputBaseFilename=MangaNotifier_v1.5_Setup
+OutputBaseFilename=MangaNotifier_v1.6_Setup
 SetupIconFile=data\assets\app_icon.ico
 Compression=lzma2
 SolidCompression=yes
@@ -63,6 +63,7 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(
 Type: files; Name: "{app}\MangaNotifier.exe"
 Type: files; Name: "{app}\MNv1.3.exe"
 Type: files; Name: "{app}\MNv1.4.exe"
+Type: files; Name: "{app}\MNv1.5.exe"
 
 [Code]
 { ──────────────────────────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ begin
   // Attempt to close a running Manga Notifier (all known exe names)
   Exec('taskkill.exe', '/F /IM MNv1.4.exe',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM MNv1.5.exe',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM MNv1.6.exe',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM MangaNotifier.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := True;
 end;
