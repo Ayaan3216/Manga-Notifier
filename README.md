@@ -7,6 +7,7 @@ Manga Notifier is a highly responsive, modern desktop application designed to tr
 - **Dynamic Scraping Engine**: Supports multiple popular reading platforms natively:
   - Bilibili Manga
   - Kuaikan Manhua
+  - Kakao Webtoon
   - MangaDex
   - Tencent AC (ac.qq.com)
 - **Smart Geo-Bypass**: Built-in Google Translate proxy fallback specifically designed to bypass Tencent AC's IP bans (e.g., in India) without requiring a VPN.
@@ -46,9 +47,30 @@ python main.py
 ### Compiling to `.exe`
 We use PyInstaller to compile the app into a standalone executable.
 ```bash
-pip install pyinstaller
-python -m PyInstaller --noconsole --onefile --name MangaNotifier --icon=data/assets/mangadex.ico --add-data "data/assets;data/assets" main.py
+pip install pyinstaller Pillow
+python -m PyInstaller MNv1.6.spec
 ```
+
+## 📦 Version History
+
+### **v1.6 (Current)**
+- **Material You UI Overhaul:** Rebuilt the entire interface to adopt Android 16's Material Design 3 guidelines.
+- **Smooth Pill Buttons:** Replaced legacy rigid buttons with dynamically generated, fully anti-aliased curved pill buttons using `Pillow`.
+- **Floating Surface Cards:** Upgraded the manga tracking list from hard-lined separators to modern, padded floating cards.
+- **Performance Fixes:** Introduced a smart UI debouncer (`_schedule_refresh`) that completely resolves the "Not Responding" application freezes during concurrent multi-threaded web scraping.
+- **UI Bug Squashing:** Fixed modal height clipping, added custom `app_icon.ico` window decorations to dialogs, disabled background canvas scrolling when interacting with modals, and fixed duplicate-window spawns from button clicks.
+
+### **v1.5**
+- **Kakao Webtoon Support:** Implemented a new, efficient scraper utilizing Kakao's `gateway-kw` API to accurately track full chapter releases.
+- **Automated Installers:** Introduced a robust `Install-MangaNotifier.ps1` PowerShell script and an Inno Setup `.iss` configuration for seamless upgrades that perfectly preserve user tracking lists.
+- **About Modal:** Added a dedicated "ℹ" sheet featuring developer info, bug reporting links, and Patreon support.
+- **Color Palettes:** Rolled out the first iteration of the deep "Default Dark" and "Dracula" modern palettes.
+
+### **v1.4 & Earlier**
+- Implemented the core multi-threaded background polling engine.
+- Created the core GUI, including custom title editing and URL validation.
+- Engineered a custom Google Translate proxy fallback to successfully bypass regional IP restrictions on Tencent AC.
+- Initial support for Bilibili, Kuaikan, and MangaDex.
 
 ## 📜 Credits
 **Developer:** Ayaan4uThere
