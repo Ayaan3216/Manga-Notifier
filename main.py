@@ -940,86 +940,200 @@ class EditTitleDialog(tk.Toplevel):
         self.result_name = self._name_var.get()
         self.destroy()
 
+APP_VERSION = "v1.5"
+
+
 class AboutDialog(tk.Toplevel):
-    """Modal dialog displaying developer credits."""
+    """Android-Material styled About sheet."""
+
+    # Brand colours (independent of the user's theme so the About screen
+    # always looks correct regardless of light/dark/custom selection)
+    _BG        = "#0F0F0F"   # true-black sheet background
+    _SURFACE   = "#1C1C1E"   # iOS/Android surface card
+    _SURFACE2  = "#2C2C2E"   # slightly lighter card
+    _ACCENT    = "#FF6B35"   # warm orange – stands out on dark bg
+    _PATREON   = "#FF424D"   # Patreon brand red
+    _TEXT      = "#FFFFFF"
+    _MUTED     = "#8E8E93"
+    _SEP       = "#38383A"
+    _LINK      = "#0A84FF"   # iOS-blue for links
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("About Manga Notifier")
-        self.geometry("360x360")
-        self.configure(bg=DARK_CARD)
+        self.title("About")
+        self.geometry("380x560")
+        self.configure(bg=self._BG)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
-
         self._build()
         self._center(parent)
+
+    # ── helpers ──────────────────────────────────────────────────────────────
 
     def _center(self, parent):
         self.update_idletasks()
         px, py = parent.winfo_rootx(), parent.winfo_rooty()
         pw, ph = parent.winfo_width(), parent.winfo_height()
-        w, h = self.winfo_width(), self.winfo_height()
+        w, h   = self.winfo_width(), self.winfo_height()
         self.geometry(f"+{px + (pw - w)//2}+{py + (ph - h)//2}")
 
+    def _rounded_label(self, parent, text, fg, bg, font, padx=10, pady=4, radius=8):
+        """Fake rounded pill using a label with bg matching a rounded frame."""
+        f = tk.Frame(parent, bg=bg, padx=padx, pady=pady)
+        tk.Label(f, text=text, fg=fg, bg=bg, font=font).pack()
+        return f
+
+    def _ripple_btn(self, parent, text, icon, fg, bg, hover, command, w=330, h=48, font=None):
+        """Android-style ripple button (hover darkens slightly)."""
+        font = font or ("Segoe UI", 10, "bold")
+        btn = tk.Frame(parent, bg=bg, width=w, height=h, cursor="hand2")
+        btn.pack_propagate(False)
+        lbl = tk.Label(btn, text=f"  {icon}  {text}", fg=fg, bg=bg,
+                       font=font, anchor="center")
+        lbl.pack(fill="both", expand=True)
+        for w_ in (btn, lbl):
+            w_.bind("<Enter>",  lambda e, b=btn, l=lbl: (b.configure(bg=hover), l.configure(bg=hover)))
+            w_.bind("<Leave>",  lambda e, b=btn, l=lbl: (b.configure(bg=bg),    l.configure(bg=bg)))
+            w_.bind("<Button-1>", lambda e: command())
+        return btn
+
+    # ── build ─────────────────────────────────────────────────────────────────
+
     def _build(self):
-        # ── icon ──
+        # ── drag handle (Android bottom-sheet look) ──────────────────────────
+        tk.Frame(self, bg=self._SEP, width=40, height=4).pack(pady=(10, 0))
+
+        # ── avatar + app name ────────────────────────────────────────────────
+        avatar_frame = tk.Frame(self, bg=self._BG)
+        avatar_frame.pack(pady=(18, 0))
+
         try:
-            from PIL import Image, ImageTk
+            from PIL import Image, ImageTk, ImageDraw
             _p = ASSETS_DIR / "app_icon.png"
             if _p.exists():
-                _img = Image.open(_p).resize((80, 80), Image.LANCZOS)
-                self._photo = ImageTk.PhotoImage(_img)
-                tk.Label(self, image=self._photo, bg=DARK_CARD).pack(pady=(20, 0))
+                # Circular crop
+                size = 88
+                img  = Image.open(_p).resize((size, size), Image.LANCZOS).convert("RGBA")
+                mask = Image.new("L", (size, size), 0)
+                ImageDraw.Draw(mask).ellipse((0, 0, size-1, size-1), fill=255)
+                img.putalpha(mask)
+                self._avatar = ImageTk.PhotoImage(img)
+                tk.Label(avatar_frame, image=self._avatar, bg=self._BG,
+                         bd=0).pack()
+            else:
+                raise FileNotFoundError
         except Exception:
-            tk.Label(self, text="📖", bg=DARK_CARD, font=("Segoe UI", 36)).pack(pady=(20, 0))
+            # Emoji fallback
+            tk.Label(avatar_frame, text="📖", bg=self._BG,
+                     font=("Segoe UI", 46)).pack()
 
-        tk.Label(self, text="Manga Notifier", fg=TEXT_PRIMARY, bg=DARK_CARD,
-                 font=("Segoe UI", 16, "bold")).pack(pady=(8, 2))
-        tk.Label(self, text="Your premium manga tracking companion.",
-                 fg=TEXT_MUTED, bg=DARK_CARD, font=FONT_SMALL).pack()
+        tk.Label(self, text="Manga Notifier", fg=self._TEXT, bg=self._BG,
+                 font=("Segoe UI", 19, "bold")).pack(pady=(10, 2))
 
-        # ── version pill ──
-        ver = tk.Label(self, text="v1.0.0", fg=ACCENT, bg=DARK_CARD2,
-                       font=("Segoe UI", 8, "bold"), padx=8, pady=2)
-        ver.pack(pady=(6, 0))
+        # Version pill
+        pill = tk.Frame(self, bg=self._SURFACE2, padx=12, pady=3)
+        pill.pack()
+        tk.Label(pill, text=APP_VERSION, fg=self._ACCENT, bg=self._SURFACE2,
+                 font=("Segoe UI", 9, "bold")).pack()
 
-        # ── info card ──
-        card = tk.Frame(self, bg=DARK_CARD2, padx=16, pady=14)
-        card.pack(fill="x", padx=24, pady=14)
+        tk.Label(self, text="Your premium manga tracking companion",
+                 fg=self._MUTED, bg=self._BG,
+                 font=("Segoe UI", 9)).pack(pady=(6, 0))
 
-        tk.Label(card, text="DEVELOPER", fg=TEXT_MUTED, bg=DARK_CARD2,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        tk.Label(card, text="Ayaan4uThere", fg=TEXT_PRIMARY, bg=DARK_CARD2,
-                 font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(2, 10))
+        # ── developer card ───────────────────────────────────────────────────
+        card = tk.Frame(self, bg=self._SURFACE, padx=18, pady=14)
+        card.pack(fill="x", padx=20, pady=(20, 0))
 
-        sep = tk.Frame(card, bg=BORDER, height=1)
-        sep.pack(fill="x", pady=(0, 10))
+        # ── Developer row ──
+        row1 = tk.Frame(card, bg=self._SURFACE)
+        row1.pack(fill="x", pady=(0, 10))
+        tk.Label(row1, text="👨‍💻", bg=self._SURFACE,
+                 font=("Segoe UI", 18)).pack(side="left", padx=(0, 12))
+        info = tk.Frame(row1, bg=self._SURFACE)
+        info.pack(side="left", fill="x", expand=True)
+        tk.Label(info, text="DEVELOPER", fg=self._MUTED, bg=self._SURFACE,
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w")
+        tk.Label(info, text="Ayaan4uThere", fg=self._TEXT, bg=self._SURFACE,
+                 font=("Segoe UI", 12, "bold"), anchor="w").pack(anchor="w")
 
-        tk.Label(card, text="FEEDBACK & SUPPORT", fg=TEXT_MUTED, bg=DARK_CARD2,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        email_lbl = tk.Label(card, text="✉  schoolboy3216@gmail.com", fg=ACCENT,
-                             bg=DARK_CARD2, font=("Segoe UI", 10), cursor="hand2")
-        email_lbl.pack(anchor="w", pady=(2, 0))
-        email_lbl.bind("<Button-1>", lambda e: webbrowser.open("mailto:schoolboy3216@gmail.com"))
+        tk.Frame(card, bg=self._SEP, height=1).pack(fill="x", pady=6)
 
-        sep2 = tk.Frame(card, bg=BORDER, height=1)
-        sep2.pack(fill="x", pady=10)
+        # ── Email row ──
+        row2 = tk.Frame(card, bg=self._SURFACE, cursor="hand2")
+        row2.pack(fill="x", pady=(4, 0))
+        tk.Label(row2, text="✉️", bg=self._SURFACE,
+                 font=("Segoe UI", 16)).pack(side="left", padx=(0, 12))
+        email_info = tk.Frame(row2, bg=self._SURFACE)
+        email_info.pack(side="left", fill="x", expand=True)
+        tk.Label(email_info, text="FEEDBACK", fg=self._MUTED, bg=self._SURFACE,
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w")
+        email_lbl = tk.Label(email_info, text="schoolboy3216@gmail.com",
+                             fg=self._LINK, bg=self._SURFACE,
+                             font=("Segoe UI", 10), anchor="w", cursor="hand2")
+        email_lbl.pack(anchor="w")
+        _mailto = "mailto:schoolboy3216@gmail.com?subject=MangaNotifier%20Feedback"
+        for w_ in (row2, email_info, email_lbl):
+            w_.bind("<Button-1>", lambda e: webbrowser.open(_mailto))
 
-        tk.Label(card, text="SOURCE & ISSUES", fg=TEXT_MUTED, bg=DARK_CARD2,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        gh_lbl = tk.Label(card, text="⎋  Report a bug / Request a feature", fg=TEXT_LINK,
-                          bg=DARK_CARD2, font=("Segoe UI", 10), cursor="hand2")
-        gh_lbl.pack(anchor="w", pady=(2, 0))
-        gh_lbl.bind("<Button-1>", lambda e: webbrowser.open("mailto:schoolboy3216@gmail.com?subject=MangaNotifier%20Feedback"))
+        arrow2 = tk.Label(row2, text="›", fg=self._MUTED, bg=self._SURFACE,
+                          font=("Segoe UI", 18))
+        arrow2.pack(side="right")
 
-        # ── close button ──
-        close_btn = RoundedButton(self, "Close", command=self.destroy,
-                                  bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
-                                  width=100, height=30)
-        close_btn.pack(pady=(0, 16))
+        tk.Frame(card, bg=self._SEP, height=1).pack(fill="x", pady=6)
+
+        # ── GitHub / Issues row ──
+        row3 = tk.Frame(card, bg=self._SURFACE, cursor="hand2")
+        row3.pack(fill="x", pady=(4, 0))
+        tk.Label(row3, text="🐛", bg=self._SURFACE,
+                 font=("Segoe UI", 16)).pack(side="left", padx=(0, 12))
+        gh_info = tk.Frame(row3, bg=self._SURFACE)
+        gh_info.pack(side="left", fill="x", expand=True)
+        tk.Label(gh_info, text="REPORT A BUG", fg=self._MUTED, bg=self._SURFACE,
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w")
+        gh_lbl = tk.Label(gh_info, text="Open an issue on GitHub",
+                          fg=self._LINK, bg=self._SURFACE,
+                          font=("Segoe UI", 10), anchor="w", cursor="hand2")
+        gh_lbl.pack(anchor="w")
+        _gh_url = "https://github.com/Ayaan3216/Manga-Notifier/issues"
+        for w_ in (row3, gh_info, gh_lbl):
+            w_.bind("<Button-1>", lambda e: webbrowser.open(_gh_url))
+        tk.Label(row3, text="›", fg=self._MUTED, bg=self._SURFACE,
+                 font=("Segoe UI", 18)).pack(side="right")
+
+        # ── Patreon support button ────────────────────────────────────────────
+        patreon_frame = tk.Frame(self, bg=self._BG)
+        patreon_frame.pack(fill="x", padx=20, pady=(14, 0))
+
+        patreon_btn = self._ripple_btn(
+            patreon_frame,
+            text="Support on Patreon",
+            icon="❤",
+            fg=self._TEXT,
+            bg=self._PATREON,
+            hover="#CC2F38",
+            command=lambda: webbrowser.open("https://patreon.com/ayaan4uthere"),
+            w=340, h=50,
+            font=("Segoe UI", 11, "bold"),
+        )
+        patreon_btn.pack(fill="x")
+
+        # ── Close / dismiss button ─────────────────────────────────────────────
+        dismiss = self._ripple_btn(
+            self,
+            text="Close",
+            icon="✕",
+            fg=self._MUTED,
+            bg=self._SURFACE2,
+            hover=self._SEP,
+            command=self.destroy,
+            w=340, h=40,
+            font=("Segoe UI", 10),
+        )
+        dismiss.pack(pady=(10, 20))
 
         self.bind("<Escape>", lambda e: self.destroy())
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
