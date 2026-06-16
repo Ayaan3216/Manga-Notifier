@@ -139,12 +139,6 @@ class RoundedButton(tk.Canvas):
         self.bind("<Leave>", self._on_leave)
         self.bind("<Button-1>", self._click)
         self.bind("<ButtonRelease-1>", self._on_leave)
-        self.tag_bind("pill", "<Enter>", self._on_enter)
-        self.tag_bind("pill", "<Leave>", self._on_leave)
-        self.tag_bind("pill", "<Button-1>", self._click)
-        self.tag_bind(self._text_id, "<Enter>", self._on_enter)
-        self.tag_bind(self._text_id, "<Leave>", self._on_leave)
-        self.tag_bind(self._text_id, "<Button-1>", self._click)
 
     def update_colors(self, bg=None, fg=None, hover_bg=None, outer_bg=None):
         if bg: self._bg = bg
