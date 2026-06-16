@@ -112,6 +112,7 @@ class RoundedButton(tk.Canvas):
         except Exception:
             outer_bg = DARK_BG
 
+        self._outer_bg = outer_bg
         super().__init__(master, bg=outer_bg, width=width, height=height, highlightthickness=0, **kwargs)
         self.pack_propagate(False)
 
@@ -144,6 +145,18 @@ class RoundedButton(tk.Canvas):
         self.tag_bind(self._text_id, "<Enter>", self._on_enter)
         self.tag_bind(self._text_id, "<Leave>", self._on_leave)
         self.tag_bind(self._text_id, "<Button-1>", self._click)
+
+    def update_colors(self, bg=None, fg=None, hover_bg=None, outer_bg=None):
+        if bg: self._bg = bg
+        if fg: self._fg = fg
+        if hover_bg: self._hover_bg = hover_bg
+        if outer_bg: self._outer_bg = outer_bg
+        
+        self.configure(bg=self._outer_bg)
+        self._img_normal = self._create_smooth_pill(self._bg, self._outer_bg)
+        self._img_hover = self._create_smooth_pill(self._hover_bg, self._outer_bg)
+        self.itemconfig(self._pill_id, image=self._img_normal)
+        self.itemconfig(self._text_id, fill=self._fg)
 
     def _create_smooth_pill(self, color, outer_bg):
         # 4x supersampling for smooth anti-aliasing
@@ -506,15 +519,15 @@ class MangaNotifierApp(tk.Tk):
 
         # Add manga button
         # In Material 3, the primary button (FAB or primary action) often uses the accent background with contrasting dark text.
-        add_btn = RoundedButton(ctrl, "+ Add Manga", command=self._add_manga,
-                                bg=ACCENT, fg="#1C1C1E", hover_bg=ACCENT_HOVER,
-                                width=130, height=38)
-        add_btn.pack(side="left")
+        self._add_btn = RoundedButton(ctrl, "+ Add Manga", command=self._add_manga,
+                                      bg=ACCENT, fg="#1C1C1E", hover_bg=ACCENT_HOVER,
+                                      width=130, height=38)
+        self._add_btn.pack(side="left")
 
-        info_btn = RoundedButton(ctrl, "ℹ", command=self._show_about,
-                                 bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
-                                 width=38, height=38, radius=19)
-        info_btn.pack(side="left", padx=(12, 0))
+        self._info_btn = RoundedButton(ctrl, "ℹ", command=self._show_about,
+                                       bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER,
+                                       width=38, height=38, radius=19)
+        self._info_btn.pack(side="left", padx=(12, 0))
 
         # Theme picker
         prefs = _load_prefs()
@@ -573,6 +586,9 @@ class MangaNotifierApp(tk.Tk):
 
         # Mousewheel scroll
         def _on_mousewheel(event):
+            # Do not scroll if a modal dialog has grab_set
+            if self.tk.call('grab', 'current'):
+                return
             # Only scroll if the content is taller than the canvas view
             if self._list_frame.winfo_height() > canvas.winfo_height():
                 canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -690,6 +706,15 @@ class MangaNotifierApp(tk.Tk):
         p = _load_prefs()
         p["theme"] = name
         _save_prefs(p)
+        
+        # Manually update header buttons that aren't rebuilt
+        if hasattr(self, "_check_btn"):
+            self._check_btn.update_colors(bg=DARK_CARD2, fg=TEXT_PRIMARY, hover_bg=BORDER, outer_bg=DARK_CARD)
+        if hasattr(self, "_add_btn"):
+            self._add_btn.update_colors(bg=ACCENT, fg="#1C1C1E", hover_bg=ACCENT_HOVER, outer_bg=DARK_CARD)
+        if hasattr(self, "_info_btn"):
+            self._info_btn.update_colors(bg=DARK_CARD2, fg=TEXT_MUTED, hover_bg=BORDER, outer_bg=DARK_CARD)
+            
         # Recolor root and rebuild
         self.configure(bg=DARK_BG)
         self._recolor_widget(self)
@@ -835,11 +860,18 @@ class AddMangaDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Add Manga")
-        self.geometry("520x250")
+        self.geometry("520x300")
         self.configure(bg=DARK_CARD)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
+
+        try:
+            icon_path = ASSETS_DIR / "app_icon.ico"
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+        except Exception:
+            pass
 
         self.result_url = ""
         self.result_name = ""
@@ -929,6 +961,13 @@ class EditTitleDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
+        try:
+            icon_path = ASSETS_DIR / "app_icon.ico"
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+        except Exception:
+            pass
+
         self.result_name = None
         self.current_name = current_name
         self._build()
@@ -1000,6 +1039,14 @@ class AboutDialog(tk.Toplevel):
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
+
+        try:
+            icon_path = ASSETS_DIR / "app_icon.ico"
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+        except Exception:
+            pass
+
         self._build()
         self._center(parent)
 
