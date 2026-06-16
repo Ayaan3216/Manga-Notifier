@@ -788,6 +788,81 @@ def _scrape_kakao_page(url: str, session: requests.Session) -> MangaInfo:
     return MangaInfo(title=manga_title, cover_url="", latest_chapter=None)
 
 
+def _scrape_kakao_webtoon(url: str, session: requests.Session) -> MangaInfo:
+    """
+    Scraper for webtoon.kakao.com using the public gateway-kw.kakao.com API.
+
+    URL format:  https://webtoon.kakao.com/content/{slug}/{content_id}
+                 or with ?tab=episode
+
+    The gateway endpoint returns the real total episode count via:
+        meta.pagination.totalCount
+    and the latest episode details via data.episodes[0].
+    No authentication is required.
+    """
+    # Extract numeric content ID from path: /content/<slug>/<id>
+    m = re.search(r'/content/[^/]+/([0-9]+)', url)
+    if not m:
+        raise ValueError(f"Cannot parse content ID from webtoon.kakao.com URL: {url}")
+    content_id = m.group(1)
+
+    # ── 1. Fetch episode list (newest first, limit=1) to get totalCount ───────
+    api_url = (
+        f"https://gateway-kw.kakao.com/episode/v2/views/content-home"
+        f"/contents/{content_id}/episodes?sort=-NO&offset=0&limit=1"
+    )
+    api_headers = {
+        **KR_HEADERS,
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://webtoon.kakao.com",
+        "Referer": "https://webtoon.kakao.com/",
+    }
+    resp = session.get(api_url, headers=api_headers, timeout=TIMEOUT)
+    resp.raise_for_status()
+    payload = resp.json()
+
+    total_count = (payload.get("meta", {}).get("pagination", {}).get("totalCount") or 0)
+    episodes    = payload.get("data", {}).get("episodes", [])
+    latest_ep   = episodes[0] if episodes else {}
+
+    # Episode number: prefer 'no' field (sequential), title is sometimes "N화"
+    ep_no    = latest_ep.get("no") or latest_ep.get("seasonEpisodeNo") or total_count
+    ep_title = latest_ep.get("title") or f"{ep_no}화"
+    ep_url   = f"https://webtoon.kakao.com/content-home/{content_id}/{latest_ep.get('seoId', '')}" \
+                if latest_ep.get("seoId") else url
+
+    # ── 2. Get the manga title from the page HTML (og:title) ─────────────────
+    manga_title = "Unknown"
+    try:
+        # Use the original content URL (it has the correct og:title in the SSR response)
+        page_resp = session.get(
+            url.split("?")[0],
+            headers={**KR_HEADERS, "Referer": "https://webtoon.kakao.com/"},
+            timeout=TIMEOUT,
+        )
+        soup = BeautifulSoup(page_resp.text, "lxml")
+        og = soup.find("meta", property="og:title")
+        if og and og.get("content"):
+            manga_title = re.sub(r'\s*[-|]\s*(카카오웹툰|KAKAO WEBTOON).*$', '', og["content"]).strip()
+        # If still empty (og:title was just the site name), try keywords meta which has the webtoon title
+        if not manga_title or manga_title.lower() in ("카카오웹툰", "kakao webtoon"):
+            kw = soup.find("meta", attrs={"name": "keywords"})
+            if kw and kw.get("content"):
+                manga_title = kw["content"].split(",")[0].strip()
+    except Exception:
+        pass
+
+
+    ch_num = float(ep_no)
+    logger.info(
+        f"Kakao Webtoon (gateway-kw): {manga_title} — Ch.{ch_num} "
+        f"(total={total_count}, ep_title={ep_title})"
+    )
+    return MangaInfo(
+        title=manga_title,
+        cover_url="",
+        latest_chapter=ChapterInfo(ch_num, ep_title, ep_url),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -825,6 +900,8 @@ def scrape(url: str, session: "requests.Session | None" = None) -> MangaInfo:
             return _scrape_naver_series(url, session)
         elif "page.kakao.com" in url:
             return _scrape_kakao_page(url, session)
+        elif "webtoon.kakao.com" in url:
+            return _scrape_kakao_webtoon(url, session)
 
         return _scrape_generic(url, session)
 
